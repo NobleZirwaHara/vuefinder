@@ -141,6 +141,11 @@ const menuItems = {
     key: FEATURES.RENAME,
     title: () => t('Rename'),
     action: () => app.modal.open(ModalRename, {items: selectedItems}),
+  },
+  updateDocType: {
+    key: FEATURES.UPDATEDOCTYPE,
+    title: () => t('Update Document Type'),
+    action: () => app.modal.open(ModalRename, {items: selectedItems}),
   }
 };
 
@@ -188,6 +193,7 @@ app.emitter.on('vf-contextmenu-show', ({event, items, target = null}) => {
     } else {
       context.items.push(menuItems.preview);
       context.items.push(menuItems.download);
+      context.items.push(menuItems.updateDocType);
     }
     context.items.push(menuItems.rename);
 

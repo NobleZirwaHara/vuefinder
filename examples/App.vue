@@ -11,25 +11,7 @@
 
     <br>
     <br>
-    <div style="font-weight: bold;padding: 10px">External select example</div>
-    <vue-finder
-      id='my_vuefinder2'
-      :request="request"
-      :max-file-size="maxFileSize"
-      :features="features"
-      @select="handleSelect"
-    />
 
-    <button class="btn" @click="handleButton" :disabled="!selectedFiles.length">Show Selected  ({{ selectedFiles.length ?? 0 }} selected)</button>
-
-    <div v-show="selectedFiles.length">
-      <h3>Selected Files ({{ selectedFiles.length }} selected)</h3>
-      <ul>
-        <li v-for="file in selectedFiles" :key="file.path">
-          {{ file.path }}
-        </li>
-      </ul>
-    </div>
 
   </div>
 </template>
@@ -43,7 +25,7 @@ import { FEATURES, FEATURE_ALL_NAMES } from '../src/features.js';
 const request = {
   // ----- CHANGE ME! -----
   // [REQUIRED] Url for development server endpoint
-  baseUrl: "http://vuefinder.ozdemir.be.test/vuefinder",
+  baseUrl: "https://vuefinder.ozdemir.be/vuefinder",
   // ----- CHANGE ME! -----
 
   // Additional headers & params & body

@@ -11,6 +11,14 @@
             {{ t('Drag and drop the files/folders to here or click here.') }}
           </div>
         </div>
+        <div>
+          <select v-model="selectedDocumentType" name="document_type" class="vuefinder__upload-modal__document-type-select" style="width:100%; padding:6px; margin-bottom: 10px; border-radius: 4px; border-width: 2px; border-style: dashed; border-color: #e5e7eb;">
+            <option value="">{{ t('Select Document Type') }}</option>
+            <option v-for="docType in documentTypes" :key="docType.id" :value="docType.id">
+              {{ docType.label }}
+            </option>
+          </select>
+        </div>
         <div ref="container" class="vuefinder__upload-modal__buttons">
           <button ref="pickFiles" type="button" class="vf-btn vf-btn-secondary">
             {{ t('Select Files') }}
@@ -51,7 +59,7 @@
     <input ref="internalFolderInput" type="file" multiple webkitdirectory class="hidden">
 
     <template v-slot:buttons>
-      <button type="button" class="vf-btn vf-btn-primary" :disabled="uploading" @click.prevent="upload">
+      <button type="button" class="vf-btn vf-btn-primary" :disabled="uploading || !selectedDocumentType" @click.prevent="upload">
         {{ t('Upload') }}
       </button>
       <button type="button" class="vf-btn vf-btn-secondary" v-if="uploading" @click.prevent="cancel">{{ t('Cancel') }}</button>
@@ -113,11 +121,39 @@ const message = ref('');
 const uploading = ref(false);
 const hasFilesInDropArea = ref(false);
 
+// New refs for document types
+const documentTypes = ref([]);
+const selectedDocumentType = ref('');
+
 /**
  * Uploader instance
  * @type {?Uppy}
  */
 let uppy;
+
+// Function to fetch document types
+async function fetchDocumentTypes() {
+  try {
+    const username = 'noblecoder';
+    const password = 'Admin100%';
+    const credentials = btoa(`${username}:${password}`);  // Base64 encode the credentials
+
+    const response = await fetch('http://pmra.test/api/document-types', {
+        method: 'GET',
+        headers: {
+            'Authorization': `Basic ${credentials}`
+        }
+    });
+
+    console.log(response);
+    const data = await response.json();
+    documentTypes.value = data.results;
+    //alert(JSON.stringify(data.results));
+} catch (error) {
+    console.error('Error fetching document types:', error);
+    message.value = t('Error fetching document types. Please try again.');
+}
+}
 
 /**
  * Find queue entry index by id
@@ -187,7 +223,7 @@ function openFileSelector() {
  * Begin upload
  */
 function upload() {
-  if (uploading.value) {
+  if (uploading.value || !selectedDocumentType.value) {
     return;
   }
   if (!queue.value.filter(entry => entry.status !== QUEUE_ENTRY_STATUS.DONE).length) {
@@ -261,11 +297,18 @@ function buildReqParams() {
   return app.requester.transformRequestParams({
     url: '',
     method: 'post',
-    params: { q: 'upload', adapter: app.fs.adapter, path: app.fs.data.dirname },
+    params: { 
+      q: 'upload', 
+      adapter: app.fs.adapter, 
+      path: app.fs.data.dirname,
+      document_type: selectedDocumentType.value 
+    },
   });
 }
 
 onMounted(async () => {
+  await fetchDocumentTypes();
+
   uppy = new Uppy({
     debug: app.debug,
     restrictions: {
@@ -341,6 +384,7 @@ onMounted(async () => {
     });
   });
   uppy.on('upload-progress', (upFile, progress) => {
+    // upFile.progress.percentage never updates itself during
     // upFile.progress.percentage never updates itself during this callback, and progress param definition showed
     // some non exist properties, weird.
     const p = Math.floor(progress.bytesUploaded / progress.bytesTotal * 100);
@@ -374,7 +418,7 @@ onMounted(async () => {
   uppy.on('complete', () => {
     uploading.value = false;
     app.emitter.emit('vf-fetch', {
-      params: { q: 'index', adapter: app.fs.adapter, path: app.fs.data.dirname },
+      params: { q: 'index', adapter: app.fs.adapter, path: app.fs.data.dirname, document_type: selectedDocumentType },
       noCloseModal: true,
     });
   });

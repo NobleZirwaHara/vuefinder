@@ -11,6 +11,7 @@ export const FEATURES = {
     DELETE: 'delete',
     FULL_SCREEN: 'fullscreen',
     DOWNLOAD: 'download',
+    UPDATEDOCTYPE: 'update_doctype',
     LANGUAGE: 'language',
 }
 
