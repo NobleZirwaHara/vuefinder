@@ -3,14 +3,6 @@
     <div>
       <ModalHeader :icon="UploadSVG" :title="t('Upload Files')"></ModalHeader>
       <div class="vuefinder__upload-modal__content">
-        <div class="vuefinder__upload-modal__drop-area" ref="dropArea" @click="openFileSelector">
-          <div class="pointer-events-none" v-if="hasFilesInDropArea">
-            {{ t('Release to drop these files.') }}
-          </div>
-          <div class="pointer-events-none" v-else>
-            {{ t('Drag and drop the files/folders to here or click here.') }}
-          </div>
-        </div>
         <div>
           <select v-model="selectedDocumentType" name="document_type" class="vuefinder__upload-modal__document-type-select" style="width:100%; padding:6px; margin-bottom: 10px; border-radius: 4px; border-width: 2px; border-style: dashed; border-color: #e5e7eb;">
             <option value="">{{ t('Select Document Type') }}</option>
@@ -19,20 +11,39 @@
             </option>
           </select>
         </div>
-        <div ref="container" class="vuefinder__upload-modal__buttons">
-          <button ref="pickFiles" type="button" class="vf-btn vf-btn-secondary">
-            {{ t('Select Files') }}
-          </button>
-          <button ref="pickFolders" type="button" class="vf-btn vf-btn-secondary">
-            {{ t('Select Folders') }}
-          </button>
-          <button type="button" class="vf-btn vf-btn-secondary" :disabled="uploading" @click="clear(false)">
-            {{ t('Clear all') }}
-          </button>
-          <button type="button" class="vf-btn vf-btn-secondary" :disabled="uploading" @click="clear(true)">
-            {{ t('Clear only successful') }}
-          </button>
+
+        <!-- Upload area (hidden by default) -->
+        <div :class="{'hidden': !selectedDocumentType}">
+          <div class="vuefinder__upload-modal__drop-area" ref="dropArea" @click="openFileSelector">
+            <div class="pointer-events-none" v-if="hasFilesInDropArea">
+              {{ t('Release to drop these files.') }}
+            </div>
+            <div class="pointer-events-none" v-else>
+              {{ t('Drag and drop the files/folders to here or click here.') }}
+            </div>
+          </div>
+          
+          <div ref="container" class="vuefinder__upload-modal__buttons">
+            <button ref="pickFiles" type="button" class="vf-btn vf-btn-secondary">
+              {{ t('Select Files') }}
+            </button>
+            <button ref="pickFolders" type="button" class="vf-btn hidden vf-btn-secondary">
+              {{ t('Select Folders') }}
+            </button>
+            <button type="button" class="vf-btn vf-btn-secondary hidden" :disabled="uploading" @click="clear(false)">
+              {{ t('Clear all') }}
+            </button>
+            <button type="button" class="vf-btn vf-btn-secondary hidden" :disabled="uploading" @click="clear(true)">
+              {{ t('Clear only successful') }}
+            </button>
+          </div>
         </div>
+
+        <!-- Message when no document type selected -->
+        <div :class="{'hidden': selectedDocumentType}" class="text-center p-4 text-gray-500">
+          {{ t('Please select a document type to begin uploading') }}
+        </div>
+
         <div class="vuefinder__upload-modal__file-list vf-scrollbar">
           <div class="vuefinder__upload-modal__file-entry" :key="entry.id" v-for="entry in queue">
             <span class="vuefinder__upload-modal__file-icon" :class="getClassNameForEntry(entry)">
@@ -72,15 +83,77 @@
 import Uppy from '@uppy/core';
 import XHR from '@uppy/xhr-upload';
 import ModalLayout from './ModalLayout.vue';
-import { inject, onBeforeUnmount, onMounted, ref } from 'vue';
+import { inject, onBeforeUnmount, onMounted, ref, computed } from 'vue';
 import Message from '../Message.vue';
 import { parse } from '../../utils/filesize.js';
 import title_shorten from "../../utils/title_shorten.js";
 import ModalHeader from "./ModalHeader.vue";
 import UploadSVG from "../icons/upload.svg";
+import { watch } from 'vue';
+
+let generatedFileName = "Default";
+
+// Add this function after the existing imports in ModalUpload.vue
+// const sendFileMetadata = async (fileData) => {
+//   try {
+//     const username = 'noblecoder';  // Consider moving credentials to environment variables
+//     const password = 'Admin100%';
+//     const credentials = btoa(`${username}:${password}`);
+//     alert(fileData.name);
+//     const metadata = {
+//       filename: fileData.name,
+//       document_type: selectedDocumentType.value,
+//       path: app.fs.data.dirname,
+//       // Add any other metadata you want to send
+//     };
+
+//     const response = await fetch('http://pmra.test/api/documents/file-metadata', {
+//       method: 'POST',
+//       headers: {
+//         'Authorization': `Basic ${credentials}`,
+//         'Content-Type': 'application/json'
+//       },
+//       body: JSON.stringify(metadata)
+//     });
+
+//     if (!response.ok) {
+//       throw new Error(response.error);
+//     }
+
+//     return await response.json();
+//   } catch (error) {
+//     console.error('Error sending file metadata:', error);
+//     message.value = t('Warning: File uploaded but metadata update failed.');
+//   }
+// };
 
 const app = inject('ServiceContainer');
 const {t} = app.i18n;
+
+// New file naming configuration
+const fileNamingConfig = ref({
+  prefix: '', // Optional prefix for all files
+  suffix: '', // Optional suffix for all files
+  dateFormat: 'YYYY-MM-DD', // Date format for timestamp
+  includeTimestamp: true, // Whether to include timestamp
+  customFormatter: null, // Optional custom formatting function
+});
+
+// Function to format file name according to configuration
+const formatFileName = (originalName) => {
+  const timestamp = fileNamingConfig.value.includeTimestamp 
+    ? new Date().toISOString().split('T')[0] + '_'
+    : '';
+  
+  const nameWithoutExt = originalName.substring(0, originalName.lastIndexOf('.'));
+  const extension = originalName.substring(originalName.lastIndexOf('.'));
+  
+  if (fileNamingConfig.value.customFormatter) {
+    return fileNamingConfig.value.customFormatter(originalName);
+  }
+  
+  return `${generatedFileName}${fileNamingConfig.value.suffix}${extension}`;
+};
 
 const uppyLocale = t("uppy");
 
@@ -93,50 +166,40 @@ const QUEUE_ENTRY_STATUS = {
 }
 const definitions = ref({ QUEUE_ENTRY_STATUS })
 
-/** @type {import('vue').Ref<HTMLDivElement>} */
 const container = ref(null);
-/** @type {import('vue').Ref<HTMLInputElement>} */
 const internalFileInput = ref(null);
-/** @type {import('vue').Ref<HTMLInputElement>} */
 const internalFolderInput = ref(null);
-/** @type {import('vue').Ref<HTMLButtonElement>} */
 const pickFiles = ref(null);
-/** @type {import('vue').Ref<HTMLButtonElement>} */
 const pickFolders = ref(null);
-/** @type {import('vue').Ref<HTMLDivElement>} */
 const dropArea = ref(null);
-/**
- * @typedef {Object} QueueEntry
- * @property {String} id
- * @property {String} name File name
- * @property {String} size Formatted size
- * @property {?String} percent 0 to 100 progress value with "%" suffix
- * @property {Number} status Status, See QUEUE_ENTRY_STATUS
- * @property {String} statusName Status name
- * @property {File} originalFile
- */
-/** @type {import('vue').Ref<QueueEntry[]>} */
 const queue = ref([]);
 const message = ref('');
 const uploading = ref(false);
 const hasFilesInDropArea = ref(false);
-
-// New refs for document types
 const documentTypes = ref([]);
 const selectedDocumentType = ref('');
 
-/**
- * Uploader instance
- * @type {?Uppy}
- */
 let uppy;
 
-// Function to fetch document types
+// Modified addFile function to use the new naming system
+function addFile(file, providedName = null) {
+  const originalName = providedName || file.webkitRelativePath || file.name;
+  const formattedName = formatFileName(originalName);
+  
+  uppy.addFile({
+    name: formattedName,
+    type: file.type,
+    data: file,
+    source: 'Local',
+  });
+}
+
+// Rest of the functions remain the same, but now use the centralized naming system
 async function fetchDocumentTypes() {
   try {
     const username = 'noblecoder';
     const password = 'Admin100%';
-    const credentials = btoa(`${username}:${password}`);  // Base64 encode the credentials
+    const credentials = btoa(`${username}:${password}`);
 
     const response = await fetch('http://pmra.test/api/document-types', {
         method: 'GET',
@@ -145,46 +208,46 @@ async function fetchDocumentTypes() {
         }
     });
 
-    console.log(response);
     const data = await response.json();
     documentTypes.value = data.results;
-    //alert(JSON.stringify(data.results));
 } catch (error) {
     console.error('Error fetching document types:', error);
     message.value = t('Error fetching document types. Please try again.');
-}
+  }
 }
 
-/**
- * Find queue entry index by id
- *
- * <p>Yes calling this function is slow, but nobody is gonna use our stuff to upload over 100k files.</p>
- * @param {String} id
- * @return number index in queue
- */
+// Add this after the selectedDocumentType declaration
+watch(selectedDocumentType, async (newValue) => {
+  if (newValue) {
+    await generateDocumentName();
+  }
+});
+
+async function generateDocumentName() {
+  try {
+    const username = 'noblecoder';
+    const password = 'Admin100%';
+    const credentials = btoa(`${username}:${password}`);
+
+    const response = await fetch(`http://pmra.test/api/generate-document-name?document_type=${selectedDocumentType.value}`, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Basic ${credentials}`
+        }
+    });
+
+    const data = await response.json();
+    generatedFileName = data.filename;
+} catch (error) {
+    console.error('Error generating document name:', error);
+    message.value = t('Error generating document name. Please try again.');
+  }
+}
+
 function findQueueEntryIndexById(id) {
   return queue.value.findIndex((item) => item.id === id);
 }
 
-/**
- * Add file to uppy
- * @param {File} file
- * @param {?String} name file name with full relative path (like "dirA/dirB/file.xlsx" or just "file.xlsx")
- */
-function addFile(file, name = null) {
-  name = name != null ? name : (file.webkitRelativePath || file.name);
-  uppy.addFile({
-    name,
-    type: file.type,
-    data: file,
-    source: 'Local',
-  });
-}
-
-/**
- * Get dom class for entry
- * @param {QueueEntry} entry
- */
 function getClassNameForEntry(entry) {
   switch (entry.status) {
     case QUEUE_ENTRY_STATUS.DONE:
@@ -199,7 +262,7 @@ function getClassNameForEntry(entry) {
   }
 }
 
-const getIconForEntry = (entry) =>{
+const getIconForEntry = (entry) => {
   switch (entry.status) {
     case QUEUE_ENTRY_STATUS.DONE:
       return '✓'
@@ -212,16 +275,10 @@ const getIconForEntry = (entry) =>{
   }
 }
 
-/**
- * Open file selector
- */
 function openFileSelector() {
   pickFiles.value.click();
 }
 
-/**
- * Begin upload
- */
 function upload() {
   if (uploading.value || !selectedDocumentType.value) {
     return;
@@ -235,9 +292,6 @@ function upload() {
   uppy.upload();
 }
 
-/**
- * Cancel upload
- */
 function cancel() {
   uppy.cancelAll({ reason: 'user' });
   queue.value.forEach(entry => {
@@ -249,10 +303,6 @@ function cancel() {
   uploading.value = false;
 }
 
-/**
- * Remove a file from queue
- * @param {QueueEntry} file
- */
 function remove(file) {
   if (uploading.value) {
     return;
@@ -261,10 +311,6 @@ function remove(file) {
   queue.value.splice(findQueueEntryIndexById(file.id), 1);
 }
 
-/**
- * Clear queue
- * @param {boolean} onlySuccessful
- */
 function clear(onlySuccessful) {
   if (uploading.value) {
     return;
@@ -286,9 +332,6 @@ function clear(onlySuccessful) {
   queue.value.splice(0);
 }
 
-/**
- * Close upload modal
- */
 function close() {
   app.modal.close();
 }
@@ -313,8 +356,6 @@ onMounted(async () => {
     debug: app.debug,
     restrictions: {
       maxFileSize: parse(app.maxFileSize),
-      //maxNumberOfFiles
-      //allowedFileTypes
     },
     locale: uppyLocale,
     onBeforeFileAdded(file, files) {
@@ -322,12 +363,11 @@ onMounted(async () => {
       if (duplicated) {
         const i = findQueueEntryIndexById(file.id);
         if (queue.value[i].status === QUEUE_ENTRY_STATUS.PENDING) {
-          // Undocumented, as long as uppy don't change this we are good.
           message.value = uppy.i18n('noDuplicates', { fileName: file.name });
         }
         queue.value = queue.value.filter(entry => entry.id !== file.id);
       }
-      // We only push the file in the end of queue, so user just need scroll down to find the newly selected stuff.
+      
       queue.value.push({
         id: file.id,
         name: file.name,
@@ -338,7 +378,6 @@ onMounted(async () => {
         originalFile: file.data,
       });
       return true;
-      // Uppy would only upload that file once even you call .addFile() twice in one row, nice.
     }
   });
 
@@ -347,10 +386,8 @@ onMounted(async () => {
     limit: 5,
     timeout: 0,
     getResponseError(responseText, _response) {
-      /** @type {String} */
       let message;
       try {
-        /** @type {*} */
         const body = JSON.parse(responseText);
         message = body.message;
       } catch (e) {
@@ -359,94 +396,101 @@ onMounted(async () => {
       return new Error(message);
     },
   });
-  uppy.on('restriction-failed', (upFile, error) => {
-    //remove the restricted file.
-    const entry = queue.value[findQueueEntryIndexById(upFile.id)];
-    remove(entry)
-    message.value = error.message;
-  });
-  uppy.on('upload', () => {
-    const reqParams = buildReqParams();
-    uppy.setMeta({ ...reqParams.body });
-    const xhrPlugin = uppy.getPlugin('XHRUpload');
-    xhrPlugin.opts.method = reqParams.method;
-    xhrPlugin.opts.endpoint = reqParams.url + '?' + new URLSearchParams(reqParams.params);
-    xhrPlugin.opts.headers = reqParams.headers;
-    delete reqParams.headers['Content-Type'];
-    uploading.value = true;
-    queue.value.forEach(file => {
-      if (file.status === QUEUE_ENTRY_STATUS.DONE) {
-        return;
-      }
-      file.percent = null;
-      file.status = QUEUE_ENTRY_STATUS.UPLOADING;
-      file.statusName = t('Pending upload');
-    });
-  });
-  uppy.on('upload-progress', (upFile, progress) => {
-    // upFile.progress.percentage never updates itself during
-    // upFile.progress.percentage never updates itself during this callback, and progress param definition showed
-    // some non exist properties, weird.
-    const p = Math.floor(progress.bytesUploaded / progress.bytesTotal * 100);
-    queue.value[findQueueEntryIndexById(upFile.id)].percent = `${p}%`;
-  });
-  uppy.on('upload-success',(upFile) => {
-    const entry = queue.value[findQueueEntryIndexById(upFile.id)];
-    entry.status = QUEUE_ENTRY_STATUS.DONE;
-    entry.statusName = t('Done');
-  });
-  uppy.on('upload-error', (upFile, error) => {
-    const entry = queue.value[findQueueEntryIndexById(upFile.id)];
-    entry.percent = null;
-    entry.status = QUEUE_ENTRY_STATUS.ERROR;
-    // https://uppy.io/docs/uppy/#upload-error
-    // noinspection JSUnresolvedReference
-    if (error.isNetworkError) {
-      entry.statusName = t(`Network Error, Unable establish connection to the server or interrupted.`);
-    } else {
-      entry.statusName = error ? error.message : t('Unknown Error');
-    }
-  });
-  uppy.on('error', (error) => {
-    message.value = error.message;
-    uploading.value = false;
-    app.emitter.emit('vf-fetch', {
-      params: { q: 'index', adapter: app.fs.adapter, path: app.fs.data.dirname },
-      noCloseModal: true,
-    });
-  })
-  uppy.on('complete', () => {
-    uploading.value = false;
-    app.emitter.emit('vf-fetch', {
-      params: { q: 'index', adapter: app.fs.adapter, path: app.fs.data.dirname, document_type: selectedDocumentType },
-      noCloseModal: true,
-    });
-  });
 
+  // Set up event listeners
+  const setupEventListeners = () => {
+    uppy.on('restriction-failed', (upFile, error) => {
+      const entry = queue.value[findQueueEntryIndexById(upFile.id)];
+      remove(entry)
+      message.value = error.message;
+    });
+
+    uppy.on('upload', () => {
+      const reqParams = buildReqParams();
+      uppy.setMeta({ ...reqParams.body });
+      const xhrPlugin = uppy.getPlugin('XHRUpload');
+      xhrPlugin.opts.method = reqParams.method;
+      xhrPlugin.opts.endpoint = reqParams.url + '?' + new URLSearchParams(reqParams.params);
+      xhrPlugin.opts.headers = reqParams.headers;
+      delete reqParams.headers['Content-Type'];
+      uploading.value = true;
+      queue.value.forEach(file => {
+        if (file.status === QUEUE_ENTRY_STATUS.DONE) {
+          return;
+        }
+        file.percent = null;
+        file.status = QUEUE_ENTRY_STATUS.UPLOADING;
+        file.statusName = t('Pending upload');
+      });
+    });
+
+    uppy.on('upload-progress', (upFile, progress) => {
+      const p = Math.floor(progress.bytesUploaded / progress.bytesTotal * 100);
+      queue.value[findQueueEntryIndexById(upFile.id)].percent = `${p}%`;
+    });
+
+    uppy.on('upload-success', (upFile) => {
+      const entry = queue.value[findQueueEntryIndexById(upFile.id)];
+      entry.status = QUEUE_ENTRY_STATUS.DONE;
+      entry.statusName = t('Done');
+
+      // Send metadata after successful upload
+      // sendFileMetadata({
+      //   name: upFile.name,
+      //   // You can add more file properties here if needed
+      // });
+    });
+  uppy.on('upload-error', (upFile, error) => {
+      const entry = queue.value[findQueueEntryIndexById(upFile.id)];
+      entry.percent = null;
+      entry.status = QUEUE_ENTRY_STATUS.ERROR;
+      if (error.isNetworkError) {
+        entry.statusName = t(`Network Error, Unable establish connection to the server or interrupted.`);
+      } else {
+        entry.statusName = error ? error.message : t('Unknown Error');
+      }
+    });
+
+    uppy.on('error', (error) => {
+      message.value = error.message;
+      uploading.value = false;
+      app.emitter.emit('vf-fetch', {
+        params: { q: 'index', adapter: app.fs.adapter, path: app.fs.data.dirname },
+        noCloseModal: true,
+      });
+    });
+
+    uppy.on('complete', () => {
+      uploading.value = false;
+      app.emitter.emit('vf-fetch', {
+        params: { q: 'index', adapter: app.fs.adapter, path: app.fs.data.dirname, document_type: selectedDocumentType },
+        noCloseModal: true,
+      });
+    });
+  };
+
+  setupEventListeners();
+
+  // File input handlers
   pickFiles.value.addEventListener('click', () => {
     internalFileInput.value.click();
-  })
+  });
+
   pickFolders.value.addEventListener('click', () => {
     internalFolderInput.value.click();
   });
+
+  // Drag and drop handlers
   dropArea.value.addEventListener('dragover', ev => {
     ev.preventDefault();
     hasFilesInDropArea.value = true;
   });
+
   dropArea.value.addEventListener('dragleave', ev => {
     ev.preventDefault();
     hasFilesInDropArea.value = false;
   });
-  /**
-   * @callback ResultCallback
-   * @param {FileSystemEntry|FileSystemDirectoryEntry|FileSystemFileEntry} fileSystemEntry
-   * @param {File} file
-   */
-  /**
-   * Iterate through all dirs & files, will invoke resultCallback multiple times when read file
-   * @param {ResultCallback} resultCallback
-   * @param {FileSystemEntry|FileSystemDirectoryEntry|FileSystemFileEntry} item
-   */
+
   function scanFiles(resultCallback, item) {
     if (item.isFile) {
       item.file(f => resultCallback(item, f));
@@ -459,6 +503,7 @@ onMounted(async () => {
       });
     }
   }
+
   dropArea.value.addEventListener('drop', ev => {
     ev.preventDefault();
     hasFilesInDropArea.value = false;
@@ -467,17 +512,15 @@ onMounted(async () => {
       if (item.kind === "file") {
         scanFiles((entry, file) => {
           const matched = trimFileName.exec(entry.fullPath);
-          addFile(file, matched[1]);
+          if (matched) {
+            addFile(file, matched[1]);
+          }
         }, item.webkitGetAsEntry());
       }
     });
   });
 
-  /**
-   * File <input> change handler
-   * @param {Event} event
-   * @param {HTMLInputElement} event.target
-   */
+  // File input change handler
   const onFileInputChange = ({ target }) => {
     const files = target.files;
     for (const file of files) {
@@ -485,11 +528,32 @@ onMounted(async () => {
     }
     target.value = '';
   };
+
   internalFileInput.value.addEventListener('change', onFileInputChange);
   internalFolderInput.value.addEventListener('change', onFileInputChange);
 });
 
 onBeforeUnmount(() => {
   uppy?.close({ reason: 'unmount' });
+});
+
+// Export methods to allow external configuration of file naming
+const configureFileNaming = (config) => {
+  fileNamingConfig.value = {
+    ...fileNamingConfig.value,
+    ...config
+  };
+};
+
+// Example usage of custom formatter:
+// configureFileNaming({
+//   customFormatter: (originalName) => {
+//     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+//     return `custom_${timestamp}_${originalName}`;
+//   }
+// });
+
+defineExpose({
+  configureFileNaming
 });
 </script>

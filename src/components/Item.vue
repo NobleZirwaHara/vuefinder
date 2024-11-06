@@ -12,26 +12,106 @@
     @touchend="clearTimeOut()"
     @contextmenu.prevent="app.emitter.emit('vf-contextmenu-show', { event: $event, items: ds.getSelected(), target: item })"
   >
-    <slot/>
-    <PinSVG class="vuefinder__item--pinned" v-if="app.pinnedFolders.find(pin => pin.path === item.path)"/>
+    <div class="vuefinder__item-content relative">
+      <slot/>
+      <PinSVG class="vuefinder__item--pinned" v-if="app.pinnedFolders.find(pin => pin.path === item.path)"/>
+      <div 
+        v-if="expiryStatus" 
+        class="vuefinder__item-expiry-status"
+        :class="[expiryColor, app.view === 'grid' ? 'grid-view' : 'list-view']"
+      >
+        {{ expiryStatus }}
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import {defineProps, inject} from 'vue';
+import { ref, onMounted, watch, inject } from 'vue';
 import ModalPreview from "./modals/ModalPreview.vue";
 import ModalMove from "./modals/ModalMove.vue";
 import PinSVG from "./icons/pin.svg";
 
-const app = inject('ServiceContainer');
-const ds = app.dragSelect;
-
+// Define props first
 const props = defineProps({
   item: {type: Object},
   index: {type: Number},
   dragImage: {type: Object}
-})
+});
 
+// Then inject app
+const app = inject('ServiceContainer');
+const ds = app.dragSelect;
+
+// Define reactive references
+const expiryStatus = ref('');
+const expiryColor = ref('');
+
+// Define the checkFileExpiry function
+const checkFileExpiry = async (item) => {
+  if (!item) return;
+  
+  try {
+    const username = 'noblecoder';
+    const password = 'Admin100%';
+    const credentials = btoa(`${username}:${password}`);
+
+    const response = await fetch(`http://pmra.test/api/documents/check-expiry`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${credentials}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        filename: item.basename,
+        path: item.path,
+        full_path: `${app.fs.adapter}://${item.path}`,
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to check expiry status');
+    }
+
+    const data = await response.json();
+    
+    if (data.isExpiring) {
+      const timePeriodDisplay = data.timeUnit;
+        
+      expiryStatus.value = data.timeRemaining <= 0 
+        ? 'Expired'
+        : `Expires in ${data.timeRemaining} ${timePeriodDisplay}`;
+      
+      // Color coding based on urgency and time period
+      if (data.timeRemaining <= 0) {
+        expiryColor.value = 'text-red-600 font-bold';
+      } else if (
+        (data.timeUnit === 'days' && data.timeRemaining <= 7) ||
+        (data.timeUnit === 'months' && data.timeRemaining === 1) ||
+        (data.timeUnit === 'years' && data.timeRemaining === 1)
+      ) {
+        expiryColor.value = 'text-orange-500';
+      } else if (
+        (data.timeUnit === 'days' && data.timeRemaining <= 30) ||
+        (data.timeUnit === 'months' && data.timeRemaining <= 3) ||
+        (data.timeUnit === 'years' && data.timeRemaining <= 1)
+      ) {
+        expiryColor.value = 'text-yellow-500';
+      } else {
+        expiryColor.value = 'text-blue-500'; // For longer timeframes
+      }
+    } else {
+      expiryStatus.value = '';
+      expiryColor.value = '';
+    }
+  } catch (error) {
+    console.error('Error checking file expiry:', error);
+    expiryStatus.value = '';
+    expiryColor.value = '';
+  }
+};
+
+// Define the existing item methods
 const openItem = (item) => {
   if (item.type === 'dir') {
     app.emitter.emit('vf-search-exit');
@@ -56,7 +136,7 @@ const vDraggable = {
       el.removeEventListener('drop', handleDropZone);
     }
   }
-}
+};
 
 const handleDragStart = (e, item) => {
   if (e.altKey || e.ctrlKey || e.metaKey) {
@@ -102,12 +182,12 @@ const clearTimeOut = () => {
   if (touchTimeOut) {
     clearTimeout(touchTimeOut);
   }
-}
+};
 
 const delayedOpenItem = ($event) => {
     if(!tappedTwice) {
         tappedTwice = true; 
-        doubleTapTimeOut = setTimeout(() => tappedTwice = false, 300)
+        doubleTapTimeOut = setTimeout(() => tappedTwice = false, 300);
     } else {
         tappedTwice = false; 
         openItem(props.item);
@@ -125,8 +205,68 @@ const delayedOpenItem = ($event) => {
       clientY: $event.target.getBoundingClientRect().y
     });
     $event.target.dispatchEvent(cmEvent);
+  }, 500);
+};
 
-  }, 500)
+// Set up watchers
+watch(() => props.item, (newItem) => {
+  if (newItem) {
+    checkFileExpiry(newItem);
+  }
+}, { immediate: true, deep: true });
+
+watch(() => app.fs.path, () => {
+  if (props.item) {
+    checkFileExpiry(props.item);
+  }
+});
+
+watch(() => app.fs.data, () => {
+  if (props.item) {
+    checkFileExpiry(props.item);
+  }
+}, { deep: true });
+
+// Set up mounted hook
+onMounted(() => {
+  if (props.item) {
+    checkFileExpiry(props.item);
+  }
+});
+</script>
+
+<style scoped>
+.vuefinder__item-content {
+  position: relative;
+  width: 100%;
+  height: 100%;
 }
 
-</script>
+.vuefinder__item-expiry-status {
+  font-size: 0.8em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.vuefinder__item-expiry-status.grid-view {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+}
+
+.vuefinder__item-expiry-status.list-view {
+  display: inline-block;
+  margin-left: 8px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .vuefinder__item-expiry-status {
+    background-color: rgba(0, 0, 0, 0.7);
+  }
+}
+</style>
